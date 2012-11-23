@@ -1,9 +1,7 @@
 #!/usr/bin/python
 """
-This module contains the code for the EECS 325 Networks second project.
-
-It is similar to a UDP traceroute and is designed to investigate the
-dependency between hop count and RTT
+This module contains the helper functions for the
+second EECS 325 Networks project.
 
 Devin Schwab (dts34)
 """
@@ -16,16 +14,6 @@ import select
 import random
 import urllib2
 
-# These are used when the TTL is too low
-ICMP_TIME_EXCEEDED = 11
-ICMP_HOP_COUNT_EXCEEDED = 0
-
-# These are used when the TTL is too high or just right
-ICMP_DESTINATION_UNREACHABLE = 3
-ICMP_PORT_UNREACHABLE = 3
-
-# this is used in the socket constructor call
-ICMP_CODE = socket.getprotobyname('icmp')
 
 def construct_ip_header(src, dst, ttl, proto=socket.IPPROTO_UDP, pkt_id=None, src_aton=True, dst_aton=True):
     """

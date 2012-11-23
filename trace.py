@@ -6,7 +6,7 @@ import random
 if __name__ == '__main__':
   src = '129.22.56.238'
 
-  dst = socket.gethostbyname('yahoo.com')
+  dst = '74.125.228.69'
 
   max_hops = 30
 
