@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-from main import *
+from packet_builder import *
 import random
 
 if __name__ == '__main__':
