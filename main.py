@@ -134,9 +134,40 @@ def calculate_udp_checksum(pseudo_header, udp_header, udp_data):
     if the checksum turns out to be 0 then all 1's should be used because
     all 0's means ignore the checksum)
 
+    The algorithm is based off of the code in ping.c's in_cksum function
+
     For more information see RFC 768
     """
-    return 0
+
+    # first concatenate everything together
+    msg = pseudo_header + udp_header + udp_data
+
+    # then add up all 16 bit groups (ignore carryouts until the very end
+    s = 0 # this is the sum (sum is a built in function in python so I called it s)
+
+    # take two characters every loop
+    for i in range(0, len(msg), 2):
+        # unfortunately these are treated as strings so to make
+        # sure everything goes alright they need to be converted
+        # back to their binary representation via the
+        # ord function
+        w = ord(msg[i]) + (ord(msg[i+1]) << 8) # a word of data
+        s = s + w
+
+    # now bit shift the upper 16 bits and add to the lower 16
+    # the 0xffff masks off the lower bits so that the carry out of the
+    # sum is correct
+    s = (s >> 16) + (s & 0xffff)
+
+    # finally take the compliment and mask off any bits over 16
+    #
+    # Not sure if it will ever come out to 0, but the RFC says
+    # that if it does it should be all 1's so just to be safe
+    # I am checking
+    if (~s & 0xffff) != 0:
+        s = ~s & 0xffff
+
+    return s
 
 def construct_udp_datagram(src, dst, sport, dport, payload='Hello World!'):
     """
@@ -170,7 +201,8 @@ def construct_udp_datagram(src, dst, sport, dport, payload='Hello World!'):
     pseudo_header = construct_udp_pseduo_header(src, dst, udp_len)
     udp_chksum = calculate_udp_checksum(pseudo_header, udp_header, udp_data)
 
-    return  struct.pack('!HHHH', udp_sport, udp_dport, udp_len, udp_chksum) + udp_data
+    udp_chksum = struct.pack('H', udp_chksum) # checksum should not be in network byte order
+    return  struct.pack('!HHH', udp_sport, udp_dport, udp_len) + udp_chksum  + udp_data
 
 if __name__ == '__main__':
     src = '127.0.0.1'
