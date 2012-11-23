@@ -14,6 +14,7 @@ import time
 import struct
 import select
 import random
+import urllib2
 
 # These are used when the TTL is too low
 ICMP_TIME_EXCEEDED = 11
@@ -26,7 +27,7 @@ ICMP_PORT_UNREACHABLE = 3
 # this is used in the socket constructor call
 ICMP_CODE = socket.getprotobyname('icmp')
 
-def construct_ip_header(src, dst, ttl, proto=socket.IPPROTO_UDP, pkt_id=None):
+def construct_ip_header(src, dst, ttl, proto=socket.IPPROTO_UDP, pkt_id=None, src_aton=True, dst_aton=True):
     """
     This function creates an ip header using the
     information specified.
@@ -86,8 +87,10 @@ def construct_ip_header(src, dst, ttl, proto=socket.IPPROTO_UDP, pkt_id=None):
     ip_ttl = ttl
     ip_proto = proto
     ip_chksum = 0 # kernel will compute the checksum so no need to waste time doing it here
-    ip_src = socket.inet_aton(src)
-    ip_dst = socket.inet_aton(dst)
+    if src_aton:
+        ip_src = socket.inet_aton(src)
+    if dst_aton:
+        ip_dst = socket.inet_aton(dst)
 
     # merge the internet header length and version field so that struct can pack them
     ip_ihl_ver = (ip_ver << 4) + ip_ihl # simply bit shift the ip version to the upper 4 bits
@@ -102,10 +105,13 @@ def construct_ip_header(src, dst, ttl, proto=socket.IPPROTO_UDP, pkt_id=None):
 
     return (ip_header, pkt_id)
 
-def construct_udp_pseduo_header(src, dst, udp_len):
+def construct_udp_pseduo_header(src, dst, udp_len, src_aton=True, dst_aton=True):
     """
     This function takes in the information necessary
     to construct a pseudo header for a UDP datagram.
+
+    src_aton and dst_aton determine whether the aton function
+    is run on source and destination IP respectively
 
     The information required is:
 
@@ -117,8 +123,10 @@ def construct_udp_pseduo_header(src, dst, udp_len):
     For more information see RFC 768
     """
 
-    ip_src = socket.inet_aton(src)
-    ip_dst = socket.inet_aton(dst)
+    if src_aton:
+        ip_src = socket.inet_aton(src)
+    if dst_aton:
+        ip_dst = socket.inet_aton(dst)
 
     return struct.pack('!4s4sBBH', ip_src, ip_dst, 0, socket.IPPROTO_UDP, udp_len)
 
@@ -204,30 +212,101 @@ def construct_udp_datagram(src, dst, sport, dport, payload='Hello World!'):
     udp_chksum = struct.pack('H', udp_chksum) # checksum should not be in network byte order
     return  struct.pack('!HHH', udp_sport, udp_dport, udp_len) + udp_chksum  + udp_data
 
+def listen_for_icmp(sock, timeout, time_sent, packet_id):
+    """
+    This function will listen on the given socket until the timeout.
+
+    The packet will be matched based on the following criteria:
+
+        - packet id
+
+    This function returns a tuple. The first item in the tuple
+    is the response type. They are specified as follows:
+    
+    If a timeout occurs this function returns 0
+    If a destination port unreachable (type 3, code 3) occurs this function return 1
+    If a hop count exceeded (type 11, code 0) occurs this function returns 2
+    If none of these match then -2 is returned
+
+    The second item is the time it took to receive the reply in seconds
+    """
+    time_left = timeout
+    while True:
+        started_select = time.time()
+        ready = select.select([sock], [], [], time_left)
+        how_long_waited = time.time() - started_select
+        if ready[0] == []: # no new data means timeout
+            return (0, timeout)
+        time_received = time.time()
+        # I believe 1508 bytes is the biggest size I will see in practice
+        rec_packet, addr = sock.recvfrom(1508)
+        icmp_header = rec_packet[20:22]
+        type, code = struct.unpack('bb', icmp_header)
+        p_id = struct.unpack('!H', rec_packet[32:34])
+        if p_id[0] == packet_id:
+            rtt = time_received - time_sent
+            if type == 3 and code == 3:
+                return (1, rtt)
+            elif type == 11 and code == 0:
+                return (2, rtt)
+            else:
+                return (-2, rtt)
+
+        # not the right packet :(
+        time_left -= time_received - time_sent
+        if time_left <= 0:
+            return (0, timeout)
+            
+        
+
 if __name__ == '__main__':
-    src = '127.0.0.1'
-    dst = '127.0.0.1'
+    # what's my ip provides an easy to use
+    # service for getting the public IP address
+    # of this computer
+    #pub_ip = urllib2.urlopen('http://automation.whatismyip.com/n09230945.asp').read()
+    
+    #src = '127.0.01'
+    #src = pub_ip
+    src = '129.22.56.238'
+    #dst = '127.0.0.1'
+    dst = socket.gethostbyname('www.google.com')
     sport = 5666
     dport = 5666
 
     print "Constructing IP packet from %s to %s" % (src, dst)
-    ip_header, pkt_id = construct_ip_header(src, dst, 1)
+    ip_header, pkt_id = construct_ip_header(src, dst, 128)
     print "Packet id: %x" % pkt_id
     print
     print "Constructing UDP datagram from %i to %i" % (sport, dport)
-    udp_datagram = construct_udp_datagram(src, dst, sport, dport)
+    payload = '@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_'
+    udp_datagram = construct_udp_datagram(src, dst, sport, dport, payload=payload)
     print
     print "Sending packet"
 
+    # create the sending socket
     try:
         # no need to set IP_HDRINCL option because it is on by default with RAW sockets
-        s = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
+        sender = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
     except:
-        print "Socket could not be created"
+        print "sending socket could not be created"
         sys.exit()
+
+    # create the listening socket
+    try:
+      listener = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
+      listener.setsockopt(socket.SOL_IP, socket.IP_HDRINCL, 1)
+    except:
+      print "Listening socket could not be created"
+      sender.close()
         
     packet = ip_header + udp_datagram
 
-    s.sendto(packet, (dst, 0))
+    sender.sendto(packet, (dst, 0))
+    response, rtt = listen_for_icmp(listener, 5, time.time(), pkt_id)
+
+    print "Response: %i" % response
+    print "RTT: %f" % rtt
+
+    
     
 
