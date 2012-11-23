@@ -15,6 +15,10 @@ import random
 
 from packet_builder import *
 
+from math import ceil
+
+import pdb
+
 def calculate_distance(p1, p2):
     """
     This method takes in a latitude and
@@ -73,8 +77,6 @@ if __name__ == '__main__':
     # this is a free service provided by whatismyip.com
     src = urllib2.urlopen('http://automation.whatismyip.com/n09230945.asp').read()
 
-    dst = '74.125.228.69'
-
     # how many times each ttl should be tried
     # (this is to mitigate unfortunate events like dropped packets)
     num_tries = 3
@@ -83,9 +85,6 @@ if __name__ == '__main__':
 
     payload = 'Testing the correlation between RTT and Hop Count for a school \
                project. If you have questions please email dts34@case.edu'
-
-    lower_ttl = 0 # the lower bound on the search space of the ttl
-    upper_ttl = 32 # the upper bound and maximum ttl of the search space
 
     timeout = 5 # in seconds. This is the same default timeout used by traceroute
 
@@ -105,48 +104,59 @@ if __name__ == '__main__':
         print "Listening socket could not be created"
         sender.close()
 
-    print "Running trace from %s to %s" % (src, dst)
+    #sites = ['yahoo.com.','alipay.com.','adultfriendfinder.com.','thefreedictionary.com.',
+    #         'bluehost.com.','nokia.com.','google.sk.','hidemyass.com.','nudevista.com.',
+    #         'nikkansports.com.','egotastic.com.']
+    sites = ['google.sk.']
 
-    count = 0
-    rtt = 0
-    code = 0
-    while True: # loop forever. The code inside will break out when necessary
 
-        last_code = code
-        last_rtt = rtt
-        ttl = (upper_ttl - lower_ttl)/2 + lower_ttl
-        for i in range(0,num_tries):
-            print "Trying ttl %i" % ttl
-            ip_header, pkt_id = construct_ip_header(src, dst, ttl)
-            sport = random.randint(1024, 2**16-1) # get a random source port
-            udp_datagram = construct_udp_datagram(src, dst, sport, dport+count, payload=payload)
-            packet = ip_header + udp_datagram
+    for site in sites:
+        dst = socket.gethostbyname(site)
+        lower_ttl = 0 # the lower bound on the search space of the ttl
+        upper_ttl = 32 # the upper bound and maximum ttl of the search space
 
-            sender.sendto(packet, (dst, 0))
-            code, rtt = listen_for_icmp(listener, timeout, time.time(), pkt_id)
+        print "Running trace from %s to %s(%s)" % (src, site, dst)
 
-            if code == 1 or code == 2:
-                break
+        rtt = 0
+        code = 0
+        while True: # loop forever. The code inside will break out when necessary
 
-        if (upper_ttl - lower_ttl) <= 1 and last_code != 1:
-            print "Did not recieve a reply from the host"
-            break
-        if code == 1:
+            lowest_resp_rtt = 0
+            lowest_resp_ttl = upper_ttl+1
+            ttl = int(ceil((upper_ttl - lower_ttl)/2.0)) + lower_ttl
+            for i in range(0,num_tries):
+                print "Trying ttl %i" % ttl
+                ip_header, pkt_id = construct_ip_header(src, dst, ttl)
+                sport = random.randint(1024, 2**16-1) # get a random source port
+                udp_datagram = construct_udp_datagram(src, dst, sport, dport, payload=payload)
+                packet = ip_header + udp_datagram
+
+                sender.sendto(packet, (dst, 0))
+                code, rtt = listen_for_icmp(listener, timeout, time.time(), pkt_id)
+                
+                if code == 1:
+                    lowest_resp_rtt = rtt
+                    lowest_resp_ttl = ttl 
+                    break
+                elif code == 2:
+                    break
+
             if (upper_ttl - lower_ttl) <= 1:
-                print "RTT: %f" % rtt
-                print "TTL: %i" % ttl
-                break
+                if lowest_resp_ttl <= upper_ttl and lowest_resp_ttl >= lower_ttl:
+                    print "RTT: %f" % lowest_resp_rtt
+                    print "TTL: %i" % lowest_resp_ttl
+                    print "Distance: %f" % calculate_ip_distance(src, dst)
+                    break
+                else:
+                    print "No response"
+                    break
             else:
-                print "Lowering TTL upper bound"
-                upper_ttl = ttl
-        elif code == 2 or code == 0:
-            if (upper_ttl - lower_ttl) <= 1 and last_code == 1:
-                print "RTT: %f" % last_rtt
-                print "TTL: %i" % last_ttl
-                break
-            else:
-                print "Raising TTL lower bound"
-                lower_ttl = ttl
-        last_ttl = ttl
-        last_code = code
-        last_rtt = rtt
+                if code == 1:
+                    print "Lower ttl upper bound"
+                    upper_ttl = ttl
+                    print "\t (%i, %i)" % (lower_ttl, upper_ttl)
+                else:
+                    print "Raising ttl lower bound"
+                    lower_ttl = ttl
+                    print "\t (%i, %i)" % (lower_ttl, upper_ttl)
+                    
