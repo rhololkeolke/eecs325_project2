@@ -72,21 +72,75 @@ def calculate_ip_distance(ip1, ip2):
     return calculate_distance(p1, p2)
 
 if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--src-ip', help='The public IP address of this machine')
+    parser.add_argument('--dst-host', help='The hostname of the machine being ivestigated')
+    parser.add_argument('-n', help='The number of tries at each TTL before giving up (default is 3)',
+                        type=int)
+    parser.add_argument('-l', help='The lower TTL limit (the number must be greater than 0 (default is 1)',
+                        type=int)
+    parser.add_argument('-u', help='The uppser TTL limit (the number must be greater than 0 (default is 32)',
+                        type=int)
+    parser.add_argument('-t', help='The timeout in seconds to use for each trace (default is 5 seconds)',
+                        type=int)
+    parser.add_argument('-p', help='The destination port to use for each trace (default is 33434)',
+                        type=int)
+    parser.add_argument('-o', help='The name of the file where the data is saved to')
+    args = parser.parse_args()
 
-    # get the public IP of this machine
-    # this is a free service provided by whatismyip.com
-    src = urllib2.urlopen('http://automation.whatismyip.com/n09230945.asp').read()
+    if args.src_ip:
+        src = args.src_ip
+    else:
+        temp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        temp_sock.connect(('google.com', 0))
+        src = temp_sock.getsockname()[0]
+        temp_sock.close()
+
+    if args.dst_host:
+        sites = [args.dst_host]
+    else:
+        sites = ['yahoo.com.','alipay.com.','adultfriendfinder.com.','thefreedictionary.com.',
+                 'bluehost.com.','nokia.com.','google.sk.','hidemyass.com.','nudevista.com.',
+                 'nikkansports.com.','egotastic.com.']
 
     # how many times each ttl should be tried
     # (this is to mitigate unfortunate events like dropped packets)
-    num_tries = 3
+    if args.n:
+        num_tries = args.n
+    else:
+        num_tries = 3
 
-    dport = 33434
+    if args.l:
+        lower_ttl = args.l
+    else:
+        lower_ttl = 0
+
+    if args.u:
+        upper_ttl = args.u
+    else:
+        upper_ttl = 32
+
+    if args.t:
+        timeout = args.t
+    else:
+        timeout = 5 # 5 seconds is the same timeout used by traceroute
+
+    # this the destination port that will be used
+    if args.p:
+        dport = args.p
+    else:
+        dport = 33434
+
+    if args.o:
+        output = open(args.o, 'w')
+    else:
+        output = open('trace_data.csv', 'w')
+
+    output.write('RTT (s), Number of Hops, Distance (km)\n')
 
     payload = 'Testing the correlation between RTT and Hop Count for a school \
                project. If you have questions please email dts34@case.edu'
-
-    timeout = 5 # in seconds. This is the same default timeout used by traceroute
 
     # create the sending socket
     try:
@@ -103,12 +157,6 @@ if __name__ == '__main__':
     except:
         print "Listening socket could not be created"
         sender.close()
-
-    #sites = ['yahoo.com.','alipay.com.','adultfriendfinder.com.','thefreedictionary.com.',
-    #         'bluehost.com.','nokia.com.','google.sk.','hidemyass.com.','nudevista.com.',
-    #         'nikkansports.com.','egotastic.com.']
-    sites = ['google.sk.']
-
 
     for site in sites:
         dst = socket.gethostbyname(site)
@@ -145,7 +193,9 @@ if __name__ == '__main__':
                 if lowest_resp_ttl <= upper_ttl and lowest_resp_ttl >= lower_ttl:
                     print "RTT: %f" % lowest_resp_rtt
                     print "TTL: %i" % lowest_resp_ttl
-                    print "Distance: %f" % calculate_ip_distance(src, dst)
+                    distance = calculate_ip_distance(src, dst)
+                    print "Distance: %f" % distance
+                    output.write('%f,%i,%f\n' % (lowest_resp_rtt,lowest_resp_ttl,distance))
                     break
                 else:
                     print "No response"
@@ -159,4 +209,5 @@ if __name__ == '__main__':
                     print "Raising ttl lower bound"
                     lower_ttl = ttl
                     print "\t (%i, %i)" % (lower_ttl, upper_ttl)
-                    
+
+    output.close()
