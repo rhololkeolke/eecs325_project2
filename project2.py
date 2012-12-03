@@ -100,9 +100,15 @@ if __name__ == '__main__':
     if args.dst_host:
         sites = [args.dst_host]
     else:
-        sites = ['yahoo.com.','alipay.com.','adultfriendfinder.com.','thefreedictionary.com.',
-                 'bluehost.com.','nokia.com.','google.sk.','hidemyass.com.','nudevista.com.',
-                 'nikkansports.com.','egotastic.com.']
+        #sites = ['yahoo.com.','alipay.com.','adultfriendfinder.com.','thefreedictionary.com.',
+        #'bluehost.com.','nokia.com.','google.sk.','hidemyass.com.','nudevista.com.',
+        #         'nikkansports.com.','egotastic.com.']
+        sites = ['google.com', 'youtube.com', 'wikipedia.com',
+                 'weibo.com', 'blogger.com', 'craigslist.com',
+                 'go.com', 'espn.com', 'reddit.com',
+                 'netflix.com', 'wordpress.com',
+                 'ehow.com', 'cnet.com', 'bayes.stat.cwru.edu',
+                 'foxnews.com']
 
     # how many times each ttl should be tried
     # (this is to mitigate unfortunate events like dropped packets)
@@ -137,7 +143,7 @@ if __name__ == '__main__':
     else:
         output = open('trace_data.csv', 'w')
 
-    output.write('RTT (s), Number of Hops, Distance (km)\n')
+    output.write('Site Name, Site IP, RTT (s), Number of Hops, Distance (km)\n')
 
     payload = 'Testing the correlation between RTT and Hop Count for a school \
                project. If you have questions please email dts34@case.edu'
@@ -195,10 +201,12 @@ if __name__ == '__main__':
                     print "TTL: %i" % lowest_resp_ttl
                     distance = calculate_ip_distance(src, dst)
                     print "Distance: %f" % distance
-                    output.write('%f,%i,%f\n' % (lowest_resp_rtt,lowest_resp_ttl,distance))
+                    output.write('%s,%s,%f,%i,%f\n' % (site, dst, lowest_resp_rtt, lowest_resp_ttl, distance))
                     break
                 else:
                     print "No response"
+                    distance = calculate_ip_distance(src, dst)
+                    output.write('%s,%s,%f,%i,%f\n' % (site, dst, 5, 0, distance))
                     break
             else:
                 if code == 1:
